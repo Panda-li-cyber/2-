@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>🍭 英语大冒险：全自适应版</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        :root { --girl: #ff78b0; --boy: #4facfe; }
+        
+        * { box-sizing: border-box; }
+
+        body { 
+            background: linear-gradient(180deg, #87CEEB 0%, #8BC34A 100%);
+            min-height: 100vh; margin: 0; font-family: 'Microsoft YaHei', sans-serif;
+            display: flex; flex-direction: column; align-items: center; 
+            padding: 10px; overflow-x: hidden;
+        }
+
+        /* 顶部状态栏自适应 */
+        .hud {
+            display: flex; gap: 15px; background: rgba(255, 255, 255, 0.95);
+            padding: 10px 20px; border-radius: 50px; margin-top: 5px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1); border: 3px solid #fff;
+            max-width: 100%; align-items: center;
+        }
+        .team { font-size: clamp(14px, 4vw, 24px); font-weight: bold; padding: 5px 12px; border-radius: 20px; cursor: pointer; white-space: nowrap; }
+        .active { background: #fff; box-shadow: 0 0 10px rgba(0,0,0,0.2); transform: scale(1.05); }
+        
+        /* 核心游戏板自适应 */
+        #game-board {
+            position: relative; 
+            width: 95vw; 
+            max-width: 950px; 
+            height: 60vh; 
+            max-height: 500px;
+            background: rgba(255, 255, 255, 0.4); border-radius: 20px;
+            border: 5px solid white; margin-top: 15px;
+            overflow: hidden;
+        }
+
+        .node {
+            position: absolute; width: clamp(35px, 8vw, 55px); height: clamp(35px, 8vw, 55px); 
+            border-radius: 25%; display: flex; align-items: center; justify-content: center;
+            font-size: clamp(12px, 3vw, 20px); z-index: 5; font-weight: bold;
+        }
+        .n-odd { background: #FFEB3B; color: #856404; }
+        .n-even { background: #FF9800; color: white; }
+        .n-spec { background: #FF5252 !important; color: white !important; border: 2px solid white; }
+
+        .pawn {
+            width: clamp(25px, 6vw, 45px); height: clamp(25px, 6vw, 45px); 
+            border-radius: 20%; position: absolute; z-index: 10;
+            border: 2px solid white; box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+            transition: all 0.4s ease-out; font-size: clamp(18px, 5vw, 30px);
+            display: flex; align-items: center; justify-content: center;
+        }
+
+        /* 按钮自适应 */
+        #roll-btn {
+            margin-top: 15px; padding: 12px 20%; font-size: clamp(20px, 5vw, 28px);
+            background: #FF5722; color: white; border: none; border-radius: 50px;
+            cursor: pointer; box-shadow: 0 5px 0 #BF360C; width: 80%; max-width: 300px;
+        }
+
+        /* 弹窗自适应 */
+        #modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 100; justify-content: center; align-items: center; padding: 20px; }
+        .quiz-card { background: #FFF; padding: 20px; border-radius: 30px; border: 6px solid #FFEB3B; text-align: center; width: 100%; max-width: 500px; }
+        #question { font-size: clamp(20px, 6vw, 32px); margin: 15px 0; color: #333; word-wrap: break-word; }
+        .btn-group { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+        .btn-group button { border: none; padding: 10px 15px; border-radius: 12px; color: white; font-size: 16px; cursor: pointer; flex: 1; min-width: 80px; }
+
+        /* 获胜层 */
+        #win-overlay { display: none; position: fixed; inset: 0; background: white; z-index: 200; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 20px; }
+        .win-title { font-size: clamp(40px, 10vw, 80px); color: #FF9800; margin-bottom: 10px; }
+        
+        /* 针对手机竖屏的微调 */
+        @media (max-aspect-ratio: 1/1) {
+            #game-board { height: 70vh; }
+            .node { width: 45px; height: 45px; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="hud">
+        <div id="team-0" class="team active" onclick="editTeamName(0)" style="color: var(--girl);">🐱 喵喵组</div>
+        <div id="dice-ui" style="font-size: 28px;">🎲</div>
+        <div id="team-1" class="team" onclick="editTeamName(1)" style="color: var(--boy);">🐶 汪汪组</div>
+    </div>
+
+    <div id="game-board"></div>
+
+    <button id="roll-btn" onclick="startRolling()">GO! 🎲</button>
+
+    <div id="modal">
+        <div class="quiz-card">
+            <h2 id="modal-team" style="font-size: 18px; color: #FF9800;">挑战时间</h2>
+            <div id="question">题库加载中...</div>
+            <div id="answer-display" style="display:none; font-size: 20px; color: #2e7d32; margin-bottom: 10px;"></div>
+            <div class="btn-group">
+                <button onclick="handle(true)" style="background:#4CAF50;">答对 ✅</button>
+                <button onclick="revealAnswer()" style="background:#FFC107; color: #856404;">答案 📖</button>
+                <button onclick="handle(false)" style="background:#F44336;">加油 💡</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="win-overlay">
+        <div style="font-size: 80px;">🏆</div>
+        <div id="winner-name" class="win-title">获胜组名</div>
+        <button onclick="location.reload()" style="padding: 15px 40px; font-size: 20px; background: #4CAF50; color: white; border: none; border-radius: 50px;">重新开始</button>
+    </div>
+
+<script>
+    const sfx = {
+        dice: new Audio('assets/sfx/dice_roll.mp3'),
+        jump: new Audio('assets/sfx/jump.mp3'),
+        hole: new Audio('assets/sfx/hole_fall.mp3'),
+        snake: new Audio('assets/sfx/snake_attack.mp3'),
+        plane: new Audio('assets/sfx/plane_fly.mp3'),
+        wrong: new Audio('assets/sfx/wrong_ans.mp3'),
+        win: new Audio('assets/sfx/winner_cheer.mp3')
+    };
+
+    function stopSounds() { Object.values(sfx).forEach(a => { a.pause(); a.currentTime = 0; }); }
+
+    function editTeamName(i) {
+        const n = prompt("输入组名：", i===0?"喵喵组":"汪汪组");
+        if(n) document.getElementById('team-'+i).innerText = n;
+    }
+
+    const traps = {
+        5: { icon: '✈️', type: 'plane', move: 30, msg: "飞机直达终点！" },
+        14: { icon: '🐍', type: 'snake', move: -4, msg: "后退4格" },
+        22: { icon: '🕳️', type: 'hole', move: 5, msg: "穿越前进5格！" }
+    };
+
+    let questions = [{q: "大写字母'A'对应的小写字母是？", a: "a"},
+  {q: "小写字母'b'对应的大写字母是？", a: "B"},
+  {q: "大写字母'C'对应的小写字母是？", a: "c"},
+  {q: "狗的英语是什么？", a: "dog"},
+  {q: "猫的英语是什么？", a: "cat"},
+  {q: "红色的英语是什么？", a: "red"},
+  {q: "蓝色的英语是什么？", a: "blue"},
+  {q: "数字'1'的英语是什么？", a: "one"},
+  {q: "数字'5'的英语是什么？", a: "five"},
+  {q: "跑步的英语是什么？", a: "run"},
+  {q: "长颈鹿的英语是什么？", a: "giraffe"},
+  {q: "大写字母'E'对应的小写字母是？", a: "e"},
+  {q: "小写字母'f'对应的大写字母是？", a: "F"},
+  {q: "大象的英语是什么？", a: "elephant"},
+  {q: "老虎的英语是什么？", a: "tiger"},
+  {q: "黄色的英语是什么？", a: "yellow"},
+  {q: "绿色的英语是什么？", a: "green"},
+  {q: "数字'3'的英语是什么？", a: "three"},
+  {q: "数字'8'的英语是什么？", a: "eight"},
+  {q: "跳跃的英语是什么？", a: "jump"},
+  {q: "'你好'的英语是什么？", a: "hello"},
+  {q: "大写字母'G'对应的小写字母是？", a: "g"},
+  {q: "小写字母'h'对应的大写字母是？", a: "H"},
+  {q: "狮子的英语是什么？", a: "lion"},
+  {q: "猴子的英语是什么？", a: "monkey"},
+  {q: "橙色的英语是什么？", a: "orange"},
+  {q: "紫色的英语是什么？", a: "purple"},
+  {q: "数字'2'的英语是什么？", a: "two"},
+  {q: "数字'10'的英语是什么？", a: "ten"},
+  {q: "走路的英语是什么？", a: "walk"},
+  {q: "熊猫的英语是什么？", a: "panda"},
+  {q: "大写字母'I'对应的小写字母是？", a: "i"},
+  {q: "小写字母'j'对应的大写字母是？", a: "J"},
+  {q: "熊的英语是什么？", a: "bear"},
+  {q: "兔子的英语是什么？", a: "rabbit"},
+  {q: "黑色的英语是什么？", a: "black"},
+  {q: "白色的英语是什么？", a: "white"},
+  {q: "数字'4'的英语是什么？", a: "four"},
+  {q: "数字'12'的英语是什么？", a: "twelve"},
+  {q: "游泳的英语是什么？", a: "swim"},
+  {q: "'谢谢'的英语是什么？", a: "thank you"},
+  {q: "大写字母'K'对应的小写字母是？", a: "k"},
+  {q: "小写字母'l'对应的大写字母是？", a: "L"},
+  {q: "鸟的英语是什么？", a: "bird"},
+  {q: "鱼的英语是什么？", a: "fish"},
+  {q: "粉色的英语是什么？", a: "pink"},
+  {q: "棕色的英语是什么？", a: "brown"},
+  {q: "数字'6'的英语是什么？", a: "six"},
+  {q: "数字'15'的英语是什么？", a: "fifteen"},
+  {q: "唱歌的英语是什么？", a: "sing"},
+  {q: "斑马的英语是什么？", a: "zebra"},
+  {q: "大写字母'M'对应的小写字母是？", a: "m"},
+  {q: "小写字母'n'对应的大写字母是？", a: "N"},
+  {q: "青蛙的英语是什么？", a: "frog"},
+  {q: "鸭子的英语是什么？", a: "duck"},
+  {q: "灰色的英语是什么？", a: "gray"},
+  {q: "金色的英语是什么？", a: "gold"},
+  {q: "数字'7'的英语是什么？", a: "seven"},
+  {q: "数字'18'的英语是什么？", a: "eighteen"},
+  {q: "跳舞的英语是什么？", a: "dance"},
+  {q: "'对不起'的英语是什么？", a: "sorry"},
+  {q: "大写字母'O'对应的小写字母是？", a: "o"},
+  {q: "小写字母'p'对应的大写字母是？", a: "P"},
+  {q: "马的英语是什么？", a: "horse"},
+  {q: "猪的英语是什么？", a: "pig"},
+  {q: "银色的英语是什么？", a: "silver"},
+  {q: "数字'9'的英语是什么？", a: "nine"},
+  {q: "数字'20'的英语是什么？", a: "twenty"},
+  {q: "吃的英语是什么？", a: "eat"},
+  {q: "牛的英语是什么？", a: "cow"},
+  {q: "大写字母'Q'对应的小写字母是？", a: "q"},
+  {q: "小写字母'r'对应的大写字母是？", a: "R"},
+  {q: "绵羊的英语是什么？", a: "sheep"},
+  {q: "老鼠的英语是什么？", a: "mouse"},
+  {q: "数字'11'的英语是什么？", a: "eleven"},
+  {q: "数字'13'的英语是什么？", a: "thirteen"},
+  {q: "喝的英语是什么？", a: "drink"},
+  {q: "'再见'的英语是什么？", a: "goodbye"},
+  {q: "大写字母'S'对应的小写字母是？", a: "s"},
+  {q: "小写字母't'对应的大写字母是？", a: "T"},
+  {q: "海豚的英语是什么？", a: "dolphin"},
+  {q: "蝴蝶的英语是什么？", a: "butterfly"},
+  {q: "数字'14'的英语是什么？", a: "fourteen"},
+  {q: "数字'16'的英语是什么？", a: "sixteen"},
+  {q: "阅读的英语是什么？", a: "read"},
+  {q: "乌龟的英语是什么？", a: "turtle"},
+  {q: "大写字母'U'对应的小写字母是？", a: "u"},
+  {q: "小写字母'v'对应的大写字母是？", a: "V"},
+  {q: "袋鼠的英语是什么？", a: "kangaroo"},
+  {q: "企鹅的英语是什么？", a: "penguin"},
+  {q: "数字'17'的英语是什么？", a: "seventeen"},
+  {q: "数字'19'的英语是什么？", a: "nineteen"},
+  {q: "睡觉的英语是什么？", a: "sleep"},
+  {q: "'请'的英语是什么？", a: "please"},
+  {q: "大写字母'W'对应的小写字母是？", a: "w"},
+  {q: "小写字母'x'对应的大写字母是？", a: "X"},
+  {q: "狐狸的英语是什么？", a: "fox"},
+  {q: "狼的英语是什么？", a: "wolf"},
+  {q: "学习的英语是什么？", a: "study"},
+  {q: "'我有一支红色的铅笔'用英语怎么说？", a: "I have a red pencil."},
+  {q: "Hello的中文是？", a: "你好"}];
+    let game = { pts: [], pos: [0, 0], turn: 0, moving: false, curA: "" };
+
+    async function loadExcel() {
+        try {
+            const r = await fetch('题库.xlsx');
+            const d = new Uint8Array(await r.arrayBuffer());
+            const b = XLSX.read(d, {type:'array'});
+            const j = XLSX.utils.sheet_to_json(b.Sheets[b.SheetNames[0]]);
+            questions = j.map(i => ({q: "大写字母'A'对应的小写字母是？", a: "a"},
+  {q: "小写字母'b'对应的大写字母是？", a: "B"},
+  {q: "大写字母'C'对应的小写字母是？", a: "c"},
+  {q: "狗的英语是什么？", a: "dog"},
+  {q: "猫的英语是什么？", a: "cat"},
+  {q: "红色的英语是什么？", a: "red"},
+  {q: "蓝色的英语是什么？", a: "blue"},
+  {q: "数字'1'的英语是什么？", a: "one"},
+  {q: "数字'5'的英语是什么？", a: "five"},
+  {q: "跑步的英语是什么？", a: "run"},
+  {q: "长颈鹿的英语是什么？", a: "giraffe"},
+  {q: "大写字母'E'对应的小写字母是？", a: "e"},
+  {q: "小写字母'f'对应的大写字母是？", a: "F"},
+  {q: "大象的英语是什么？", a: "elephant"},
+  {q: "老虎的英语是什么？", a: "tiger"},
+  {q: "黄色的英语是什么？", a: "yellow"},
+  {q: "绿色的英语是什么？", a: "green"},
+  {q: "数字'3'的英语是什么？", a: "three"},
+  {q: "数字'8'的英语是什么？", a: "eight"},
+  {q: "跳跃的英语是什么？", a: "jump"},
+  {q: "'你好'的英语是什么？", a: "hello"},
+  {q: "大写字母'G'对应的小写字母是？", a: "g"},
+  {q: "小写字母'h'对应的大写字母是？", a: "H"},
+  {q: "狮子的英语是什么？", a: "lion"},
+  {q: "猴子的英语是什么？", a: "monkey"},
+  {q: "橙色的英语是什么？", a: "orange"},
+  {q: "紫色的英语是什么？", a: "purple"},
+  {q: "数字'2'的英语是什么？", a: "two"},
+  {q: "数字'10'的英语是什么？", a: "ten"},
+  {q: "走路的英语是什么？", a: "walk"},
+  {q: "熊猫的英语是什么？", a: "panda"},
+  {q: "大写字母'I'对应的小写字母是？", a: "i"},
+  {q: "小写字母'j'对应的大写字母是？", a: "J"},
+  {q: "熊的英语是什么？", a: "bear"},
+  {q: "兔子的英语是什么？", a: "rabbit"},
+  {q: "黑色的英语是什么？", a: "black"},
+  {q: "白色的英语是什么？", a: "white"},
+  {q: "数字'4'的英语是什么？", a: "four"},
+  {q: "数字'12'的英语是什么？", a: "twelve"},
+  {q: "游泳的英语是什么？", a: "swim"},
+  {q: "'谢谢'的英语是什么？", a: "thank you"},
+  {q: "大写字母'K'对应的小写字母是？", a: "k"},
+  {q: "小写字母'l'对应的大写字母是？", a: "L"},
+  {q: "鸟的英语是什么？", a: "bird"},
+  {q: "鱼的英语是什么？", a: "fish"},
+  {q: "粉色的英语是什么？", a: "pink"},
+  {q: "棕色的英语是什么？", a: "brown"},
+  {q: "数字'6'的英语是什么？", a: "six"},
+  {q: "数字'15'的英语是什么？", a: "fifteen"},
+  {q: "唱歌的英语是什么？", a: "sing"},
+  {q: "斑马的英语是什么？", a: "zebra"},
+  {q: "大写字母'M'对应的小写字母是？", a: "m"},
+  {q: "小写字母'n'对应的大写字母是？", a: "N"},
+  {q: "青蛙的英语是什么？", a: "frog"},
+  {q: "鸭子的英语是什么？", a: "duck"},
+  {q: "灰色的英语是什么？", a: "gray"},
+  {q: "金色的英语是什么？", a: "gold"},
+  {q: "数字'7'的英语是什么？", a: "seven"},
+  {q: "数字'18'的英语是什么？", a: "eighteen"},
+  {q: "跳舞的英语是什么？", a: "dance"},
+  {q: "'对不起'的英语是什么？", a: "sorry"},
+  {q: "大写字母'O'对应的小写字母是？", a: "o"},
+  {q: "小写字母'p'对应的大写字母是？", a: "P"},
+  {q: "马的英语是什么？", a: "horse"},
+  {q: "猪的英语是什么？", a: "pig"},
+  {q: "银色的英语是什么？", a: "silver"},
+  {q: "数字'9'的英语是什么？", a: "nine"},
+  {q: "数字'20'的英语是什么？", a: "twenty"},
+  {q: "吃的英语是什么？", a: "eat"},
+  {q: "牛的英语是什么？", a: "cow"},
+  {q: "大写字母'Q'对应的小写字母是？", a: "q"},
+  {q: "小写字母'r'对应的大写字母是？", a: "R"},
+  {q: "绵羊的英语是什么？", a: "sheep"},
+  {q: "老鼠的英语是什么？", a: "mouse"},
+  {q: "数字'11'的英语是什么？", a: "eleven"},
+  {q: "数字'13'的英语是什么？", a: "thirteen"},
+  {q: "喝的英语是什么？", a: "drink"},
+  {q: "'再见'的英语是什么？", a: "goodbye"},
+  {q: "大写字母'S'对应的小写字母是？", a: "s"},
+  {q: "小写字母't'对应的大写字母是？", a: "T"},
+  {q: "海豚的英语是什么？", a: "dolphin"},
+  {q: "蝴蝶的英语是什么？", a: "butterfly"},
+  {q: "数字'14'的英语是什么？", a: "fourteen"},
+  {q: "数字'16'的英语是什么？", a: "sixteen"},
+  {q: "阅读的英语是什么？", a: "read"},
+  {q: "乌龟的英语是什么？", a: "turtle"},
+  {q: "大写字母'U'对应的小写字母是？", a: "u"},
+  {q: "小写字母'v'对应的大写字母是？", a: "V"},
+  {q: "袋鼠的英语是什么？", a: "kangaroo"},
+  {q: "企鹅的英语是什么？", a: "penguin"},
+  {q: "数字'17'的英语是什么？", a: "seventeen"},
+  {q: "数字'19'的英语是什么？", a: "nineteen"},
+  {q: "睡觉的英语是什么？", a: "sleep"},
+  {q: "'请'的英语是什么？", a: "please"},
+  {q: "大写字母'W'对应的小写字母是？", a: "w"},
+  {q: "小写字母'x'对应的大写字母是？", a: "X"},
+  {q: "狐狸的英语是什么？", a: "fox"},
+  {q: "狼的英语是什么？", a: "wolf"},
+  {q: "学习的英语是什么？", a: "study"},
+  {q: "'我有一支红色的铅笔'用英语怎么说？", a: "I have a red pencil."},
+  {q: "Hello的中文是？", a: "你好"}));
+        } catch(e) {}
+    }
+
+    function initMap() {
+        const board = document.getElementById('game-board');
+        const bW = board.clientWidth, bH = board.clientHeight;
+        for(let i=0; i<30; i++) {
+            const row = Math.floor(i/10);
+            const col = (row % 2 === 0) ? i%10 : 9-(i%10);
+            // 关键：使用百分比坐标实现响应式
+            const x = (col * 9 + 5) + "%";
+            const y = (row * 30 + 15) + "%";
+            game.pts.push({x, y});
+            const node = document.createElement('div');
+            node.className = `node ${traps[i]?'n-spec':(i%2===0?'n-even':'n-odd')}`;
+            node.style.left = x; node.style.top = y;
+            node.innerHTML = traps[i] ? traps[i].icon : i;
+            board.appendChild(node);
+        }
+        render();
+    }
+
+    function render() {
+        [0, 1].forEach(i => {
+            const pt = game.pts[game.pos[i]];
+            let el = document.getElementById('pawn-'+i);
+            if(!el) {
+                el = document.createElement('div'); el.id = 'pawn-'+i; el.className = 'pawn';
+                el.innerHTML = i===0?"🐱":"🐶"; el.style.backgroundColor = i===0?"var(--girl)":"var(--boy)";
+                document.getElementById('game-board').appendChild(el);
+            }
+            // 稍微偏移防止重叠
+            el.style.left = `calc(${pt.x} + ${i*2}vw)`; 
+            el.style.top = pt.y;
+        });
+    }
+
+    async function startRolling() {
+        if(game.moving) return;
+        stopSounds(); game.moving = true;
+        document.getElementById('roll-btn').disabled = true;
+        sfx.dice.play();
+        const s = Math.floor(Math.random()*6)+1;
+        document.getElementById('dice-ui').innerText = s;
+        for(let i=0; i<s; i++) {
+            if(game.pos[game.turn] >= 29) break;
+            game.pos[game.turn]++; sfx.jump.play(); render();
+            await new Promise(r => setTimeout(r, 400));
+        }
+        const q = questions[Math.floor(Math.random()*questions.length)];
+        document.getElementById('question').innerText = q.q; game.curA = q.a;
+        document.getElementById('answer-display').style.display = 'none';
+        document.getElementById('modal').style.display = 'flex';
+    }
+
+    function revealAnswer() {
+        document.getElementById('answer-display').innerText = "答案：" + game.curA;
+        document.getElementById('answer-display').style.display = 'block';
+    }
+
+    function handle(correct) {
+        document.getElementById('modal').style.display = 'none';
+        if(correct) {
+            const t = traps[game.pos[game.turn]];
+            if(t) {
+                if(t.type==='plane') { sfx.plane.play(); game.pos[game.turn]=29; }
+                else { game.pos[game.turn] = Math.max(0, Math.min(29, game.pos[game.turn]+t.move)); t.move>0?sfx.hole.play():sfx.snake.play(); }
+                render();
+            }
+        } else { sfx.wrong.play(); }
+
+        if(game.pos[game.turn] >= 29) {
+            sfx.win.play();
+            document.getElementById('winner-name').innerText = document.getElementById('team-'+game.turn).innerText + " 获胜！";
+            document.getElementById('win-overlay').style.display = 'flex';
+        } else {
+            game.turn = 1 - game.turn; game.moving = false;
+            document.getElementById('roll-btn').disabled = false;
+            document.getElementById('team-0').className = 'team '+(game.turn===0?'active':'');
+            document.getElementById('team-1').className = 'team '+(game.turn===1?'active':'');
+        }
+    }
+
+    window.onload = async () => { await loadExcel(); initMap(); };
+</script>
+</body>
+</html>
